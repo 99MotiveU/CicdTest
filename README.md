@@ -2,6 +2,8 @@
 
 GitHub Actions를 사용한 Azure 자동 배포가 설정된 Spring Boot + React 게시판 애플리케이션입니다.
 
+**마지막 업데이트**: 2024년 12월 19일 - CI/CD 파이프라인 테스트
+
 ## 📍 프로젝트 정보
 
 - **GitHub 저장소**: https://github.com/99MotiveU/CicdTest
