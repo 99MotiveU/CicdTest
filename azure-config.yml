@@ -1,0 +1,66 @@
+# Azure 배포 설정 파일
+# 이 파일은 Azure Container Registry와 Azure Container Instances 설정을 포함합니다.
+
+# Azure 리소스 설정
+azure:
+  resource_group: "board-app-rg"
+  location: "koreacentral"
+  container_registry:
+    name: "boardappacr"
+    sku: "Basic"
+    admin_enabled: true
+
+# 컨테이너 설정
+containers:
+  backend:
+    name: "board-backend"
+    image: "board-backend"
+    port: 8080
+    cpu: 1.0
+    memory: 1.5
+    environment_variables:
+      SPRING_PROFILES_ACTIVE: "prod"
+      SPRING_DATASOURCE_URL: "jdbc:h2:mem:testdb"
+      SPRING_DATASOURCE_DRIVERCLASSNAME: "org.h2.Driver"
+      SPRING_DATASOURCE_USERNAME: "sa"
+      SPRING_DATASOURCE_PASSWORD: ""
+      SPRING_H2_CONSOLE_ENABLED: "true"
+      SPRING_JPA_HIBERNATE_DDL_AUTO: "create-drop"
+      SPRING_JPA_SHOW_SQL: "true"
+      JWT_SECRET: "your-secret-key-here"
+      JWT_EXPIRATION: "86400000"
+    restart_policy: "Always"
+
+  frontend:
+    name: "board-frontend"
+    image: "board-frontend"
+    port: 3000
+    cpu: 0.5
+    memory: 1.0
+    environment_variables:
+      REACT_APP_API_URL: "http://board-backend.koreacentral.azurecontainer.io:8080"
+    restart_policy: "Always"
+
+# 네트워킹 설정
+networking:
+  dns_name_label_backend: "board-backend"
+  dns_name_label_frontend: "board-frontend"
+  ports:
+    backend: 8080
+    frontend: 3000
+
+# 보안 설정
+security:
+  jwt_secret: "your-secret-key-here"
+  jwt_expiration: 86400000
+
+# 모니터링 설정
+monitoring:
+  enabled: true
+  log_analytics_workspace: "board-app-logs"
+
+# 비용 최적화 설정
+cost_optimization:
+  auto_shutdown: true
+  shutdown_time: "18:00"
+  startup_time: "09:00" 

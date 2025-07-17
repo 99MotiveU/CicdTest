@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: PROJECT_NAME-backend
+  namespace: board-app
+  labels:
+    app: PROJECT_NAME-backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: PROJECT_NAME-backend
+  template:
+    metadata:
+      labels:
+        app: PROJECT_NAME-backend
+    spec:
+      containers:
+      - name: board-backend
+        image: ACR_NAME.azurecr.io/board-backend:IMAGE_TAG
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "prod"
+        - name: SPRING_DATASOURCE_URL
+          value: "jdbc:h2:mem:testdb"
+        - name: SPRING_DATASOURCE_DRIVERCLASSNAME
+          value: "org.h2.Driver"
+        - name: SPRING_DATASOURCE_USERNAME
+          value: "sa"
+        - name: SPRING_DATASOURCE_PASSWORD
+          value: ""
+        - name: SPRING_H2_CONSOLE_ENABLED
+          value: "true"
+        - name: SPRING_JPA_HIBERNATE_DDL_AUTO
+          value: "create-drop"
+        - name: SPRING_JPA_SHOW_SQL
+          value: "true"
+        - name: JWT_SECRET
+          value: "your-secret-key-here"
+        - name: JWT_EXPIRATION
+          value: "86400000"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+      imagePullSecrets:
+      - name: acr-secret 

@@ -1,0 +1,167 @@
+name: CI/CD Pipeline - Azure (CicdTest)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  AZURE_REGISTRY: ${{ secrets.AZURE_REGISTRY }}
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  AZURE_LOCATION: ${{ secrets.AZURE_LOCATION }}
+  PROJECT_NAME: "cicdtest"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
+    - name: Cache Gradle packages
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+    
+    - name: Build with Gradle
+      run: |
+        chmod +x ./gradlew
+        ./gradlew build
+    
+    - name: Test with Gradle
+      run: |
+        chmod +x ./gradlew
+        ./gradlew test
+
+  build-and-push-to-acr:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Login to Azure Container Registry
+      uses: azure/docker-login@v2
+      with:
+        login-server: ${{ env.AZURE_REGISTRY }}.azurecr.io
+        username: ${{ secrets.AZURE_REGISTRY_USERNAME }}
+        password: ${{ secrets.AZURE_REGISTRY_PASSWORD }}
+    
+    - name: Build and Push Backend Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.PROJECT_NAME }}-backend:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Build and Push Frontend Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: ./frontend
+        push: true
+        tags: ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.PROJECT_NAME }}-frontend:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  deploy-to-azure:
+    needs: build-and-push-to-acr
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Azure Login
+      uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+    
+    - name: Deploy Backend to Azure Container Instances
+      run: |
+        az container create \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name ${{ env.PROJECT_NAME }}-backend \
+          --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.PROJECT_NAME }}-backend:${{ github.sha }} \
+          --dns-name-label ${{ env.PROJECT_NAME }}-backend-${{ github.run_number }} \
+          --ports 8080 \
+          --registry-login-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
+          --registry-username ${{ secrets.AZURE_REGISTRY_USERNAME }} \
+          --registry-password ${{ secrets.AZURE_REGISTRY_PASSWORD }} \
+          --environment-variables \
+            SPRING_PROFILES_ACTIVE=prod \
+            SPRING_DATASOURCE_URL=jdbc:h2:mem:testdb \
+            SPRING_DATASOURCE_DRIVERCLASSNAME=org.h2.Driver \
+            SPRING_DATASOURCE_USERNAME=sa \
+            SPRING_DATASOURCE_PASSWORD= \
+            SPRING_H2_CONSOLE_ENABLED=true \
+            SPRING_JPA_HIBERNATE_DDL_AUTO=create-drop \
+            SPRING_JPA_SHOW_SQL=true \
+            JWT_SECRET=your-secret-key-here \
+            JWT_EXPIRATION=86400000 \
+          --restart-policy Always
+    
+    - name: Deploy Frontend to Azure Container Instances
+      run: |
+        az container create \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name ${{ env.PROJECT_NAME }}-frontend \
+          --image ${{ env.AZURE_REGISTRY }}.azurecr.io/${{ env.PROJECT_NAME }}-frontend:${{ github.sha }} \
+          --dns-name-label ${{ env.PROJECT_NAME }}-frontend-${{ github.run_number }} \
+          --ports 3000 \
+          --registry-login-server ${{ env.AZURE_REGISTRY }}.azurecr.io \
+          --registry-username ${{ secrets.AZURE_REGISTRY_USERNAME }} \
+          --registry-password ${{ secrets.AZURE_REGISTRY_PASSWORD }} \
+          --environment-variables \
+            REACT_APP_API_URL=http://${{ env.PROJECT_NAME }}-backend-${{ github.run_number }}.${{ env.AZURE_LOCATION }}.azurecontainer.io:8080 \
+          --restart-policy Always
+    
+    - name: Get Backend URL
+      run: |
+        BACKEND_URL=$(az container show \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name ${{ env.PROJECT_NAME }}-backend \
+          --query "ipAddress.fqdn" \
+          --output tsv)
+        echo "Backend URL: http://$BACKEND_URL:8080"
+        echo "BACKEND_URL=http://$BACKEND_URL:8080" >> $GITHUB_ENV
+    
+    - name: Get Frontend URL
+      run: |
+        FRONTEND_URL=$(az container show \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name ${{ env.PROJECT_NAME }}-frontend \
+          --query "ipAddress.fqdn" \
+          --output tsv)
+        echo "Frontend URL: http://$FRONTEND_URL:3000"
+        echo "FRONTEND_URL=http://$FRONTEND_URL:3000" >> $GITHUB_ENV
+    
+    - name: Deployment Summary
+      run: |
+        echo "🚀 Deployment completed successfully!"
+        echo "📱 Frontend: ${{ env.FRONTEND_URL }}"
+        echo "🔧 Backend: ${{ env.BACKEND_URL }}"
+        echo "📊 H2 Console: ${{ env.BACKEND_URL }}/h2-console" 

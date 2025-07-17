@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: PROJECT_NAME-frontend
+  namespace: board-app
+  labels:
+    app: PROJECT_NAME-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: PROJECT_NAME-frontend
+  template:
+    metadata:
+      labels:
+        app: PROJECT_NAME-frontend
+    spec:
+      containers:
+      - name: board-frontend
+        image: ACR_NAME.azurecr.io/board-frontend:IMAGE_TAG
+        ports:
+        - containerPort: 3000
+        env:
+        - name: REACT_APP_API_URL
+          value: "http://board-backend-service.board-app.svc.cluster.local:8080"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+      imagePullSecrets:
+      - name: acr-secret 
